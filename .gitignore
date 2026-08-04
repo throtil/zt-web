@@ -1,0 +1,29 @@
+# --- Секреты: никогда не в git ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# --- WordPress: ядро и медиа не версионируются ---
+# Версионируем только свою тему, mu-plugins и декларативный список плагинов.
+wp-content/uploads/
+wp-content/upgrade/
+wp-content/cache/
+wp-content/plugins/
+!wp-content/plugins/.gitkeep
+wp-content/themes/*
+!wp-content/themes/zt-*/
+wp-config.php
+
+# --- Дампы и бэкапы ---
+*.sql
+*.sql.gz
+backups/
+
+# --- Локальная разработка ---
+node_modules/
+vendor/
+.DS_Store
+*.log
