@@ -88,3 +88,4 @@ ufw не установлен и не включается: на машине р
 уровне SSH: вход только по ключу, вход под root запрещён.
 
 Обоснование целиком — в `openspec/changes/bootstrap-vps-wordpress/design.md`.
+
