@@ -123,6 +123,9 @@ services:
       ZT_SITE_ADDRESS: ${ZT_SITE_ADDRESS:?не задан ZT_SITE_ADDRESS}
       ZT_ACME_EMAIL: ${ZT_ACME_EMAIL:?не задан ZT_ACME_EMAIL}
       ZT_ACME_PROFILE: ${ZT_ACME_PROFILE:?не задан ZT_ACME_PROFILE}
+      # Без `:?`: пустое значение здесь осмысленно — это режим без default_sni.
+      # Отсутствие переменной целиком тоже даёт пустую строку, и это не ошибка.
+      ZT_TLS_GLOBAL: ${ZT_TLS_GLOBAL-}
       ZT_REQUEST_LIMIT: ${ZT_REQUEST_LIMIT:?не задан ZT_REQUEST_LIMIT}
     ports:
       # Единственные публикуемые наружу порты. HTTP/3 (UDP 443) не включаем:
