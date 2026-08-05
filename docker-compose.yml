@@ -122,6 +122,7 @@ services:
     environment:
       ZT_SITE_ADDRESS: ${ZT_SITE_ADDRESS:?не задан ZT_SITE_ADDRESS}
       ZT_ACME_EMAIL: ${ZT_ACME_EMAIL:?не задан ZT_ACME_EMAIL}
+      ZT_ACME_PROFILE: ${ZT_ACME_PROFILE:?не задан ZT_ACME_PROFILE}
       ZT_REQUEST_LIMIT: ${ZT_REQUEST_LIMIT:?не задан ZT_REQUEST_LIMIT}
     ports:
       # Единственные публикуемые наружу порты. HTTP/3 (UDP 443) не включаем:
