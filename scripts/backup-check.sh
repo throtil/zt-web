@@ -25,8 +25,13 @@ if [ ! -d "$ZT_BACKUP_DIR" ]; then
 	exit 1
 fi
 
-latest="$(find "$ZT_BACKUP_DIR" -maxdepth 1 -name 'zt-web-db-*.sql.gz' -type f -printf '%T@ %p\n' 2>/dev/null |
-	sort -rn | head -1 | cut -d' ' -f2-)"
+# Без `| head -1`: head выходит после первой строки и оставляет sort с SIGPIPE,
+# что при pipefail читается как «копий нет». Проверка свежести обязана давать
+# отрицательный результат только по существу, а не по случайности конвейера.
+latest_sorted="$(find "$ZT_BACKUP_DIR" -maxdepth 1 -name 'zt-web-db-*.sql.gz' -type f -printf '%T@ %p\n' 2>/dev/null |
+	sort -rn)"
+latest="${latest_sorted%%$'\n'*}"
+latest="${latest#* }"
 
 if [ -z "$latest" ]; then
 	zt_log "в $ZT_BACKUP_DIR нет ни одной копии"
@@ -56,7 +61,8 @@ if [ -n "${ZT_B2_BUCKET:-}" ] && [ -n "${ZT_B2_KEY_ID:-}" ] && [ -n "${ZT_B2_APP
 		-e RCLONE_CONFIG_B2_ACCOUNT="$ZT_B2_KEY_ID" \
 		-e RCLONE_CONFIG_B2_KEY="$ZT_B2_APP_KEY" \
 		rclone/rclone:1.71.1 lsf --files-only --format tp \
-		"b2:$ZT_B2_BUCKET/${ZT_B2_PREFIX:-db}" 2>/dev/null | sort -r | head -1 || true)"
+		"b2:$ZT_B2_BUCKET/${ZT_B2_PREFIX:-db}" 2>/dev/null | sort -r || true)"
+	remote_newest="${remote_newest%%$'\n'*}"
 
 	if [ -z "$remote_newest" ]; then
 		zt_log "в B2 копий нет или бакет недоступен — единственная копия на диске сервера"

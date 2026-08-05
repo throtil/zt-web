@@ -45,7 +45,7 @@ zt_compose up -d --remove-orphans
 
 zt_wait_healthy db 240
 zt_wait_healthy wordpress 240
-if zt_compose ps --status running --services 2>/dev/null | grep -qx caddy; then
+if zt_service_running caddy; then
 	zt_wait_healthy caddy 120
 fi
 

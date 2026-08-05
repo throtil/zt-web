@@ -44,8 +44,13 @@ started_at="$(date +%s)"
 # --- Выбор дампа -------------------------------------------------------------
 case "$mode" in
 	latest)
-		source_arg="$(find "$ZT_BACKUP_DIR" -maxdepth 1 -name 'zt-web-db-*.sql.gz' -type f -printf '%T@ %p\n' |
-			sort -rn | head -1 | cut -d' ' -f2-)"
+		# Без `| head -1`: head выходит после первой строки, sort получает
+		# SIGPIPE, и pipefail превращает это в отказ — тем вероятнее, чем
+		# больше накоплено копий. Первая строка берётся подстановкой.
+		sorted="$(find "$ZT_BACKUP_DIR" -maxdepth 1 -name 'zt-web-db-*.sql.gz' -type f -printf '%T@ %p\n' |
+			sort -rn)"
+		source_arg="${sorted%%$'\n'*}"
+		source_arg="${source_arg#* }"
 		[ -n "$source_arg" ] || zt_die "в $ZT_BACKUP_DIR нет копий"
 		;;
 	b2)
@@ -72,7 +77,7 @@ esac
 # --- Проверка дампа до того, как что-то тронуто ------------------------------
 zt_log "проверяю дамп $source_arg"
 gzip -t "$source_arg" 2>/dev/null || zt_die "дамп не проходит проверку целостности архива"
-gzip -dc "$source_arg" | tail -c 200 | grep -q 'Dump completed' ||
+zt_gz_tail_has "$source_arg" 'Dump completed' ||
 	zt_die "дамп обрезан: нет завершающей отметки"
 zt_log "дамп пригоден"
 

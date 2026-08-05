@@ -95,12 +95,12 @@ fi
 
 # mariadb-dump завершает файл строкой «Dump completed». Её отсутствие означает
 # обрыв на середине: архив при этом может быть формально целым.
-if ! gzip -dc "$tmp" | tail -c 200 | grep -q 'Dump completed'; then
+if ! zt_gz_tail_has "$tmp" 'Dump completed'; then
 	zt_die "дамп обрезан: нет завершающей отметки. Старые копии сохранены"
 fi
 
 # Без таблиц статей дамп бесполезен, даже если он целый.
-if ! gzip -dc "$tmp" | grep -qm1 'CREATE TABLE .*wp_posts'; then
+if ! zt_gz_has "$tmp" 'CREATE TABLE .*wp_posts'; then
 	zt_die "в дампе нет таблицы wp_posts — база пуста или дамп неполон. Старые копии сохранены"
 fi
 

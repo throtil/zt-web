@@ -87,7 +87,7 @@ fi
 if [ "$skip_backup" -eq 1 ]; then
 	zt_log "дамп пропущен по --skip-backup: применимо только к деплою, не затрагивающему базу"
 else
-	if zt_compose ps --status running --services 2>/dev/null | grep -qx db; then
+	if zt_service_running db; then
 		zt_log "создаю свежий дамп базы перед деплоем"
 		"$ZT_ROOT/scripts/backup-db.sh" --local ||
 			zt_die "дамп не создан — деплой не начат. Спека deploy запрещает начинать без годной свежей копии"
@@ -120,7 +120,7 @@ zt_compose up -d --remove-orphans
 # --- 5. Готовность -----------------------------------------------------------
 zt_wait_healthy db 240
 zt_wait_healthy wordpress 240
-if zt_compose ps --status running --services 2>/dev/null | grep -qx caddy; then
+if zt_service_running caddy; then
 	zt_wait_healthy caddy 120
 fi
 
