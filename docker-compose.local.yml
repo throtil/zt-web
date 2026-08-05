@@ -1,0 +1,48 @@
+# Надстройка для локальной копии на машине разработки.
+#
+# Запуск:  scripts/local-up.sh
+# Вручную: docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
+#
+# Отличия от сервера:
+#   - свои тома, поэтому данные локальной копии и сервера не пересекаются;
+#   - порт WordPress публикуется напрямую на localhost, без Caddy и TLS;
+#   - Caddy не запускается: домена и сертификатов локально нет.
+#
+# Имя файла отличается от docker-compose.override.yml сознательно: тот
+# подхватывался бы автоматически, в том числе на сервере.
+
+services:
+  db:
+    volumes:
+      - db-data-local:/var/lib/mysql
+      - ./config/mariadb/zt-tuning.cnf:/etc/mysql/conf.d/zt-tuning.cnf:ro
+
+  wordpress:
+    environment:
+      ZT_ENV: local
+      ZT_SITE_URL: http://localhost:8080
+      # WP_DEBUG задаёт сам образ из этой переменной; локально диагностика
+      # нужна, на сервере она остаётся выключенной.
+      WORDPRESS_DEBUG: "1"
+    ports:
+      # Только на петлевой интерфейс: локальная копия не должна быть видна
+      # в сети, в которой находится машина разработки.
+      - "127.0.0.1:8080:80"
+    volumes:
+      - wp-core-local:/var/www/html
+
+  wpcli:
+    environment:
+      ZT_ENV: local
+      ZT_SITE_URL: http://localhost:8080
+    volumes:
+      - wp-core-local:/var/www/html
+
+  caddy:
+    # Профиль, который никогда не включается: локально Caddy не нужен, а
+    # запускать его без домена значило бы обращаться за сертификатом.
+    profiles: ["never"]
+
+volumes:
+  db-data-local:
+  wp-core-local:

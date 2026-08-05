@@ -1,0 +1,29 @@
+; Настройки PHP для WordPress. Шаблон: значения подставляются из окружения
+; при старте контейнера скриптом scripts/container/wp-entrypoint.sh.
+; Файлы в conf.d статичны, а предел размера загрузки должен приходить из
+; одной переменной — отсюда шаблон, а не готовый ini.
+
+; Предел размера загрузки. Тот же ZT_REQUEST_LIMIT задан у Caddy
+; (request_body max_size) и у WordPress (фильтр upload_size_limit).
+; post_max_size равен upload_max_filesize: связывающим ограничением
+; остаётся размер всего запроса, а видимый редактору предел файла
+; уменьшается на накладные расходы multipart в mu-plugin.
+upload_max_filesize = __ZT_REQUEST_LIMIT__
+post_max_size = __ZT_REQUEST_LIMIT__
+
+; Память на процесс. Создание набора превью для фотографии 40-50 МБ требует
+; 300-400 МБ, см. design.md. Значение явное, а не по умолчанию: без предела
+; процесс упирается в память машины, и его останавливает система.
+memory_limit = __ZT_PHP_MEMORY_LIMIT__
+
+; Загрузка крупного файла и создание превью — минуты, не секунды.
+max_execution_time = 300
+max_input_time = 300
+
+; Массовая загрузка: несколько файлов за одну операцию.
+max_file_uploads = 20
+
+; Ошибки в журнал контейнера, не в ответ браузеру.
+display_errors = Off
+log_errors = On
+error_log = /dev/stderr

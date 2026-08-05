@@ -1,0 +1,196 @@
+# Стек сайта: WordPress с Apache, MariaDB, Caddy как обратный прокси.
+# Обоснования решений — в openspec/changes/bootstrap-vps-wordpress/design.md.
+#
+# Запуск на сервере:  docker compose up -d
+# Локальная копия:    scripts/local-up.sh  (не этот файл в одиночку)
+#
+# Секреты берутся из `.env` рядом с этим файлом. Каждой переменной задана
+# обязательная подстановка `${VAR:?...}`: отсутствующее или пустое значение
+# останавливает запуск с указанием имени переменной, а не подставляет пустой
+# пароль. Переменные перечислены сервисам поимённо, а не через `env_file`,
+# чтобы ключи Backblaze B2 из `.env` не попадали в контейнер WordPress:
+# скомпрометированный сайт не должен получить права на удаление бэкапов.
+
+name: zt-web
+
+services:
+  db:
+    image: mariadb:11.8.8-noble
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${ZT_DB_NAME:?не задан ZT_DB_NAME}
+      MARIADB_USER: ${ZT_DB_USER:?не задан ZT_DB_USER}
+      MARIADB_PASSWORD: ${ZT_DB_PASSWORD:?не задан ZT_DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${ZT_DB_ROOT_PASSWORD:?не задан ZT_DB_ROOT_PASSWORD}
+      # Без этого образ создаёт вторую учётную запись root@'%', доступную по
+      # сети из любого контейнера сети `data` — то есть и из контейнера сайта.
+      # Root по сети не нужен никому: дамп и восстановление ходят через сокет
+      # внутри контейнера базы (root@localhost). Заодно у root остаётся одна
+      # учётная запись, а не две, которые при замене пароля легко разъехаться.
+      # Действует при первичной инициализации тома; на уже созданной базе
+      # лишнюю запись убирать вручную, см. docs/runbook.md.
+      MARIADB_ROOT_HOST: localhost
+    volumes:
+      - db-data:/var/lib/mysql
+      - ./config/mariadb/zt-tuning.cnf:/etc/mysql/conf.d/zt-tuning.cnf:ro
+    # Порт базы не публикуется вообще. Docker правит правила пакетного фильтра
+    # в обход хостового файрвола, поэтому единственная надёжная защита —
+    # отсутствие публикации, а не закрытый снаружи порт.
+    networks:
+      - data
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+
+  wordpress:
+    image: wordpress:7.0.2-php8.3-apache
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: ${ZT_DB_NAME:?не задан ZT_DB_NAME}
+      WORDPRESS_DB_USER: ${ZT_DB_USER:?не задан ZT_DB_USER}
+      WORDPRESS_DB_PASSWORD: ${ZT_DB_PASSWORD:?не задан ZT_DB_PASSWORD}
+      WORDPRESS_TABLE_PREFIX: wp_
+
+      # Соли и ключи аутентификации: официальный образ переносит переменные
+      # с префиксом WORDPRESS_ в wp-config.php при старте.
+      WORDPRESS_AUTH_KEY: ${WORDPRESS_AUTH_KEY:?не задан WORDPRESS_AUTH_KEY}
+      WORDPRESS_SECURE_AUTH_KEY: ${WORDPRESS_SECURE_AUTH_KEY:?не задан WORDPRESS_SECURE_AUTH_KEY}
+      WORDPRESS_LOGGED_IN_KEY: ${WORDPRESS_LOGGED_IN_KEY:?не задан WORDPRESS_LOGGED_IN_KEY}
+      WORDPRESS_NONCE_KEY: ${WORDPRESS_NONCE_KEY:?не задан WORDPRESS_NONCE_KEY}
+      WORDPRESS_AUTH_SALT: ${WORDPRESS_AUTH_SALT:?не задан WORDPRESS_AUTH_SALT}
+      WORDPRESS_SECURE_AUTH_SALT: ${WORDPRESS_SECURE_AUTH_SALT:?не задан WORDPRESS_SECURE_AUTH_SALT}
+      WORDPRESS_LOGGED_IN_SALT: ${WORDPRESS_LOGGED_IN_SALT:?не задан WORDPRESS_LOGGED_IN_SALT}
+      WORDPRESS_NONCE_SALT: ${WORDPRESS_NONCE_SALT:?не задан WORDPRESS_NONCE_SALT}
+
+      # Дополнения к wp-config.php лежат в версионируемом файле, а не в этой
+      # переменной: образ вычисляет её содержимое через eval, а код в eval
+      # не проверяется линтером, не подсвечивается и не диагностируется по
+      # номеру строки. Через require это обычный файл в репозитории.
+      WORDPRESS_CONFIG_EXTRA: |
+        require_once '/zt/wp-config-zt.php';
+
+      # Адрес сайта — константами из окружения, не значением в базе данных.
+      ZT_SITE_URL: ${ZT_SITE_URL:?не задан ZT_SITE_URL}
+      ZT_ENV: server
+      ZT_REQUEST_LIMIT: ${ZT_REQUEST_LIMIT:?не задан ZT_REQUEST_LIMIT}
+      ZT_PHP_MEMORY_LIMIT: ${ZT_PHP_MEMORY_LIMIT:?не задан ZT_PHP_MEMORY_LIMIT}
+      ZT_DISCOURAGE_INDEXING: ${ZT_DISCOURAGE_INDEXING:?не задан ZT_DISCOURAGE_INDEXING}
+    volumes:
+      # Ядро WordPress, сторонние плагины и загрузки — в именованном томе:
+      # это состояние, оно обновляется через админку и не версионируется.
+      - wp-core:/var/www/html
+      # Свой код — точечно из рабочей копии, только для чтения.
+      # Правка файла темы видна сразу, а `git pull` не может тронуть ядро.
+      - ./wp-content/mu-plugins:/var/www/html/wp-content/mu-plugins:ro
+      - ./wp-content/themes/zt-web:/var/www/html/wp-content/themes/zt-web:ro
+      - ./config/wordpress/wp-config-zt.php:/zt/wp-config-zt.php:ro
+      - ./config/php/zt-php.ini.template:/zt/zt-php.ini.template:ro
+      - ./config/apache/zt-mpm.conf:/etc/apache2/conf-enabled/zt-mpm.conf:ro
+      - ./scripts/container/wp-entrypoint.sh:/zt/wp-entrypoint.sh:ro
+    # Обёртка подставляет пределы из окружения в настройки PHP и передаёт
+    # управление штатной точке входа образа. Своего образа не собираем,
+    # поэтому command приходится указать явно: указание entrypoint
+    # сбрасывает CMD из образа.
+    entrypoint: ["/zt/wp-entrypoint.sh"]
+    command: ["apache2-foreground"]
+    # Обработка фотографий — самый вероятный потребитель памяти на машине без
+    # запаса. Если системе придётся кого-то остановить, пусть это будет PHP,
+    # а не база и не соседствующая на сервере Amnezia.
+    oom_score_adj: 500
+    networks:
+      - data
+      - edge
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://127.0.0.1/wp-includes/js/wp-emoji-loader.min.js"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 120s
+
+  caddy:
+    image: caddy:2.11.4-alpine
+    restart: unless-stopped
+    depends_on:
+      - wordpress
+    environment:
+      ZT_SITE_ADDRESS: ${ZT_SITE_ADDRESS:?не задан ZT_SITE_ADDRESS}
+      ZT_ACME_EMAIL: ${ZT_ACME_EMAIL:?не задан ZT_ACME_EMAIL}
+      ZT_REQUEST_LIMIT: ${ZT_REQUEST_LIMIT:?не задан ZT_REQUEST_LIMIT}
+    ports:
+      # Единственные публикуемые наружу порты. HTTP/3 (UDP 443) не включаем:
+      # на этой машине лишний открытый порт не нужен, а выигрыш неощутим.
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Выпущенные сертификаты — в томе, иначе перезапуск стека означал бы
+      # новое обращение к центру сертификации.
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - edge
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:2019/metrics"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # Служебный контейнер wp-cli: сверка плагинов, первичная настройка ролей,
+  # разовые команды. Профиль `tools` держит его вне обычного `up`.
+  wpcli:
+    image: wordpress:cli-2.12.0-php8.3
+    profiles: ["tools"]
+    depends_on:
+      db:
+        condition: service_healthy
+    user: "33:33"
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: ${ZT_DB_NAME:?не задан ZT_DB_NAME}
+      WORDPRESS_DB_USER: ${ZT_DB_USER:?не задан ZT_DB_USER}
+      WORDPRESS_DB_PASSWORD: ${ZT_DB_PASSWORD:?не задан ZT_DB_PASSWORD}
+      WORDPRESS_TABLE_PREFIX: wp_
+      # Кэш wp-cli — в /tmp: контейнер работает от uid 33 с домашним каталогом
+      # `/`, и по умолчанию wp-cli пишет предупреждение о невозможности создать
+      # `/.wp-cli/cache` при каждой установке плагина. Предупреждение в выводе
+      # деплоя, на которое положено не обращать внимания, — плохая привычка.
+      WP_CLI_CACHE_DIR: /tmp/wp-cli-cache
+      # Те же дополнения к wp-config.php, что у WordPress: без них wp-cli
+      # работал бы с другим набором констант, чем сайт.
+      WORDPRESS_CONFIG_EXTRA: |
+        require_once '/zt/wp-config-zt.php';
+      ZT_SITE_URL: ${ZT_SITE_URL:?не задан ZT_SITE_URL}
+      ZT_ENV: server
+      ZT_REQUEST_LIMIT: ${ZT_REQUEST_LIMIT:?не задан ZT_REQUEST_LIMIT}
+      ZT_PHP_MEMORY_LIMIT: ${ZT_PHP_MEMORY_LIMIT:?не задан ZT_PHP_MEMORY_LIMIT}
+      ZT_DISCOURAGE_INDEXING: ${ZT_DISCOURAGE_INDEXING:?не задан ZT_DISCOURAGE_INDEXING}
+    volumes:
+      - wp-core:/var/www/html
+      - ./wp-content/mu-plugins:/var/www/html/wp-content/mu-plugins:ro
+      - ./wp-content/themes/zt-web:/var/www/html/wp-content/themes/zt-web:ro
+      - ./config/wordpress/wp-config-zt.php:/zt/wp-config-zt.php:ro
+    networks:
+      - data
+      - edge
+
+volumes:
+  db-data:
+  wp-core:
+  caddy-data:
+  caddy-config:
+
+networks:
+  # Своя сеть, не сеть по умолчанию: контейнеры Amnezia не должны иметь
+  # сетевой видимости в стек сайта, а пересоздание сети — конфликтовать с ней.
+  edge:
+  data:
+    # База данных не нуждается в выходе в интернет.
+    internal: true
