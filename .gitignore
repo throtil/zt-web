@@ -31,3 +31,7 @@ node_modules/
 vendor/
 .DS_Store
 *.log
+
+# Временные файлы Claude Code рядом с настройками проекта
+.claude/settings.local.json
+.claude/*.tmp.*
