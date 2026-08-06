@@ -7,6 +7,8 @@
 #
 # Что делает:
 #   - устанавливает WordPress, если он ещё не установлен (без мастера в браузере);
+#   - убирает примерное содержимое ядра — только на свежей установке;
+#   - включает тему сайта из репозитория;
 #   - создаёт учётную запись разработчика (роль administrator);
 #   - создаёт учётную запись редактора (штатная роль editor);
 #   - проверяет, что права редактора соответствуют заданным в mu-plugin;
@@ -25,6 +27,11 @@ set -euo pipefail
 zt_load_env
 zt_require ZT_SITE_URL ZT_SITE_TITLE ZT_ADMIN_LOGIN ZT_ADMIN_EMAIL ZT_EDITOR_LOGIN ZT_EDITOR_EMAIL
 zt_require_stack_running
+
+# Имя каталога темы в wp-content/themes. Не из окружения: тема — часть кода, а
+# не настройка развёртывания, и её подмена переменной была бы способом получить
+# сайт, не совпадающий с репозиторием.
+ZT_THEME=zt-web
 
 # Создаёт пользователя, если его нет. Аргументы: логин, email, роль.
 ensure_user() {
@@ -61,6 +68,83 @@ else
 		--admin_password="$admin_password" \
 		--skip-email >/dev/null
 	printf '\n    пароль администратора %s: %s\n    (показан один раз)\n\n' "$ZT_ADMIN_LOGIN" "$admin_password"
+	ZT_JUST_INSTALLED=1
+fi
+
+# Примерное содержимое ядра: статья «Hello world!», страница «Sample Page» и
+# черновик политики конфиденциальности. WordPress заводит их при установке, и
+# без уборки сайт, поднятый из репозитория, встречает читателя ими: статья
+# попадает в ленту на главной, страница открывается по своему адресу. Вдобавок
+# «Hello world!» лежит в рубрике по умолчанию, которой нет в дереве, то есть
+# нарушает правило «одна статья — одна рубрика» с первого дня.
+#
+# Удаляется только на свежей установке. На работающем сайте те же слоги могли
+# быть заняты настоящим содержимым, и удалять по совпадению имени значило бы
+# завести механизм, молча уносящий чужие страницы; там — только сообщение.
+#
+# Список слогов задан в самом запросе, а не аргументом: `wp eval` принимает
+# только исходный текст, позиционные аргументы — это `wp eval-file`.
+#
+# Статусы перечислены поимённо, а не словом «any». Причина неочевидна:
+# черновики — защищённый статус, и запрос со словом «any» отдаёт их только тому,
+# кто вправе их читать, а под wp-cli пользователя нет вовсе. Политика
+# конфиденциальности заводится ядром именно черновиком, то есть с «any» она в
+# список не попадала бы — при том, что в админке она на виду.
+samples="$(zt_wp eval '
+	$slugs    = array( "hello-world", "sample-page", "privacy-policy" );
+	$statuses = array( "publish", "future", "draft", "pending", "private" );
+	$found    = array();
+
+	foreach ( $slugs as $slug ) {
+		$posts = get_posts(
+			array(
+				"name"             => $slug,
+				"post_type"        => array( "post", "page" ),
+				"post_status"      => $statuses,
+				"numberposts"      => 1,
+				"suppress_filters" => false,
+			)
+		);
+
+		if ( $posts ) {
+			$found[] = $posts[0]->ID . ":" . $slug;
+		}
+	}
+
+	echo implode( " ", $found );
+' | tr -d '\r')"
+
+if [ -n "$samples" ]; then
+	sample_ids="$(printf '%s\n' "$samples" | tr ' ' '\n' | cut -d: -f1 | tr '\n' ' ' | sed 's/ *$//')"
+	sample_slugs="$(printf '%s\n' "$samples" | tr ' ' '\n' | cut -d: -f2 | tr '\n' ' ' | sed 's/ *$//')"
+
+	if [ "${ZT_JUST_INSTALLED:-0}" = "1" ]; then
+		# shellcheck disable=SC2086 # список идентификаторов, разделённый пробелами
+		zt_wp post delete $sample_ids --force >/dev/null
+		zt_log "убрано примерное содержимое ядра: $sample_slugs"
+	else
+		zt_log "на сайте есть примерное содержимое ядра: $sample_slugs (id: $sample_ids)"
+		zt_log "оно не удаляется само на работающем сайте — убрать из админки"
+	fi
+fi
+
+# Тема сайта — проверка, а не активация.
+#
+# Тему навязывает mu-plugin (`zt-structure.php`, фильтры на значения
+# `stylesheet` и `template`), потому что активная тема живёт в базе, а деплой
+# базу не трогает: на уже настроенном сервере `git pull` привёз бы шаблоны и
+# сетку, а сайт остался бы стандартной темой. Активация отсюда была бы вторым
+# хозяином того же значения и, хуже того, ничего бы не делала — фильтр всё равно
+# сильнее.
+#
+# Поэтому здесь проверяется результат: если активна не наша тема, значит либо
+# каталог темы не смонтирован, либо mu-plugin не загрузился. Дальше идти нельзя —
+# сайт в этом состоянии выглядит не тем, что в репозитории.
+active_theme="$(zt_wp theme list --status=active --field=name 2>/dev/null | tr -d '\r')"
+if [ "$active_theme" = "$ZT_THEME" ]; then
+	zt_log "активна тема $ZT_THEME (навязана mu-plugin, не значением в базе)"
+else
+	zt_die "активна тема «${active_theme:-неизвестно}», а не $ZT_THEME: проверьте, что каталог wp-content/themes/$ZT_THEME и mu-plugins смонтированы в контейнер"
 fi
 
 # Разработчик и редактор — разные люди, поэтому разные учётные записи.
@@ -80,13 +164,23 @@ has_cap() {
 }
 
 # Полный цикл заполнения обзора: создание и публикация статьи, загрузка
-# файлов в медиабиблиотеку, категории и метки.
-for cap in upload_files publish_posts manage_categories edit_others_posts edit_published_posts; do
+# файлов в медиабиблиотеку, метки.
+#
+# `manage_post_tags` вместо прежнего `manage_categories`: метки редактор
+# создаёт свободно, рубрики — нет. Рубрика попадает в меню и задана в
+# репозитории, созданная из админки она исчезнет при пересоздании сервера.
+#
+# `edit_theme_options` — глобальные стили и меню. Тем же правом ядро открывает
+# правку шаблонов; разделить их нельзя, и запрет на правку шаблонов через
+# админку остаётся правилом, см. docs/theme-layers.md.
+for cap in upload_files publish_posts manage_post_tags edit_theme_options \
+	edit_others_posts edit_published_posts; do
 	has_cap "$cap" || zt_die "у редактора нет права $cap — это дефект конфигурации, см. спеку role-separation"
 done
 
-# Состав кода и плагинов редактору недоступен.
-for cap in install_plugins activate_plugins update_core update_plugins edit_users switch_themes edit_themes edit_theme_options manage_options; do
+# Состав кода и плагинов редактору недоступен. Структура сайта — тоже.
+for cap in install_plugins activate_plugins update_core update_plugins edit_users \
+	switch_themes edit_themes manage_categories manage_options; do
 	! has_cap "$cap" || zt_die "у редактора есть право $cap, которого быть не должно"
 done
 zt_log "права редактора соответствуют спеке: нужное есть, запрещённого нет"

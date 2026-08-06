@@ -98,6 +98,7 @@ services:
       - ./config/wordpress/wp-config-zt.php:/zt/wp-config-zt.php:ro
       - ./config/php/zt-php.ini.template:/zt/zt-php.ini.template:ro
       - ./config/apache/zt-mpm.conf:/etc/apache2/conf-enabled/zt-mpm.conf:ro
+      - ./config/apache/zt-permalinks.conf:/etc/apache2/conf-enabled/zt-permalinks.conf:ro
       - ./scripts/container/wp-entrypoint.sh:/zt/wp-entrypoint.sh:ro
     # Обёртка подставляет пределы из окружения в настройки PHP и передаёт
     # управление штатной точке входа образа. Своего образа не собираем,
