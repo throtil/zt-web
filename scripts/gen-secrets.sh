@@ -9,6 +9,7 @@
 #   scripts/gen-secrets.sh          все секреты
 #   scripts/gen-secrets.sh salts    только соли и ключи WordPress
 #   scripts/gen-secrets.sh db       только пароли базы данных
+#   scripts/gen-secrets.sh proxy    только секрет прокси
 
 set -euo pipefail
 
@@ -21,6 +22,11 @@ secret() {
 print_db() {
 	echo "ZT_DB_PASSWORD=$(secret)"
 	echo "ZT_DB_ROOT_PASSWORD=$(secret)"
+}
+
+# Секрет, которым Caddy подтверждает WordPress, что запрос пришёл через прокси.
+print_proxy() {
+	echo "ZT_PROXY_TOKEN=$(secret)"
 }
 
 print_salts() {
@@ -45,16 +51,20 @@ command -v openssl >/dev/null || {
 case "${1:-all}" in
 	all)
 		print_db
+		print_proxy
 		print_salts
 		;;
 	db)
 		print_db
 		;;
+	proxy)
+		print_proxy
+		;;
 	salts)
 		print_salts
 		;;
 	*)
-		echo "gen-secrets: неизвестный аргумент '$1'; ожидается all, db или salts" >&2
+		echo "gen-secrets: неизвестный аргумент '$1'; ожидается all, db, proxy или salts" >&2
 		exit 2
 		;;
 esac

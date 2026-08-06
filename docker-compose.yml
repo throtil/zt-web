@@ -82,6 +82,11 @@ services:
       ZT_REQUEST_LIMIT: ${ZT_REQUEST_LIMIT:?не задан ZT_REQUEST_LIMIT}
       ZT_PHP_MEMORY_LIMIT: ${ZT_PHP_MEMORY_LIMIT:?не задан ZT_PHP_MEMORY_LIMIT}
       ZT_DISCOURAGE_INDEXING: ${ZT_DISCOURAGE_INDEXING:?не задан ZT_DISCOURAGE_INDEXING}
+      # Тот же секрет, что у Caddy: по нему wp-config отличает запрос через
+      # прокси от прямого обращения в контейнер. Расхождение значений между
+      # сервисами означает, что признак HTTPS не будет принят никогда — то
+      # есть цикл редиректов в админке, поэтому подстановка обязательная.
+      ZT_PROXY_TOKEN: ${ZT_PROXY_TOKEN:?не задан ZT_PROXY_TOKEN}
     volumes:
       # Ядро WordPress, сторонние плагины и загрузки — в именованном томе:
       # это состояние, оно обновляется через админку и не версионируется.
@@ -126,6 +131,7 @@ services:
       # Без `:?`: пустое значение здесь осмысленно — это режим без default_sni.
       # Отсутствие переменной целиком тоже даёт пустую строку, и это не ошибка.
       ZT_TLS_GLOBAL: ${ZT_TLS_GLOBAL-}
+      ZT_PROXY_TOKEN: ${ZT_PROXY_TOKEN:?не задан ZT_PROXY_TOKEN}
       ZT_REQUEST_LIMIT: ${ZT_REQUEST_LIMIT:?не задан ZT_REQUEST_LIMIT}
     ports:
       # Единственные публикуемые наружу порты. HTTP/3 (UDP 443) не включаем:

@@ -46,17 +46,33 @@ if ( is_string( $zt_site_url ) && '' !== $zt_site_url ) {
  * Работа за обратным прокси.
  *
  * Заголовкам можно верить только если запрос пришёл от Caddy, а не напрямую
- * от клиента. Признак этого — непубличный адрес непосредственного узла:
- * снаружи в контейнер попасть нельзя, порт не публикуется, а Caddy обращается
- * к нему по внутренней сети Docker.
+ * от клиента. Признак этого — общий секрет в заголовке X-ZT-Proxy, который
+ * Caddy задаёт директивой `header_up`: она именно задаёт значение, поэтому
+ * заголовок, присланный клиентом, затирается и подделать его нельзя.
+ *
+ * Почему не по адресу непосредственного узла, как было раньше. Официальный
+ * образ WordPress включает mod_remoteip с `RemoteIPHeader X-Forwarded-For` и
+ * доверяет всем приватным сетям, включая ту, где стоит Caddy. Apache подменяет
+ * REMOTE_ADDR адресом посетителя ДО запуска PHP, поэтому проверка «адрес узла
+ * непубличный» отвечала не на тот вопрос, который задавала:
+ *
+ *   локальная копия — посетитель 127.0.0.1, адрес приватный, проверка проходит;
+ *   сервер          — посетитель с настоящим публичным адресом, проверка не
+ *                     проходит, признак HTTPS снимается, и WordPress гонит
+ *                     запрос на https-адрес по кругу.
+ *
+ * Цикл редиректов на wp-login.php и wp-admin возникал только для посетителей
+ * извне и ни на одной локальной проверке не воспроизводился. Проверено на
+ * сервере 6 августа 2026: до исправления curl упирался в предел в 50 переходов.
+ *
+ * mod_remoteip при этом остаётся включённым: он даёт правильный адрес
+ * посетителя в журналах Apache (задача 12.8), а сюда просто не относится.
  */
-$zt_peer = isset( $_SERVER['REMOTE_ADDR'] ) ? $_SERVER['REMOTE_ADDR'] : '';
-$zt_behind_proxy = '' !== $zt_peer
-	&& false === filter_var(
-		$zt_peer,
-		FILTER_VALIDATE_IP,
-		FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
-	);
+$zt_proxy_token = getenv( 'ZT_PROXY_TOKEN' );
+$zt_sent_token = isset( $_SERVER['HTTP_X_ZT_PROXY'] ) ? $_SERVER['HTTP_X_ZT_PROXY'] : '';
+$zt_behind_proxy = is_string( $zt_proxy_token ) && '' !== $zt_proxy_token
+	&& '' !== $zt_sent_token
+	&& hash_equals( $zt_proxy_token, $zt_sent_token );
 
 if ( $zt_behind_proxy ) {
 	// Исходный запрос пришёл по HTTPS: без этого WordPress генерирует ссылки
@@ -73,7 +89,6 @@ if ( $zt_behind_proxy ) {
 	// первый элемент клиент может подделать.
 	if ( ! empty( $_SERVER['HTTP_X_REAL_IP'] )
 		&& filter_var( $_SERVER['HTTP_X_REAL_IP'], FILTER_VALIDATE_IP ) ) {
-		$_SERVER['ZT_PROXY_ADDR'] = $zt_peer;
 		$_SERVER['REMOTE_ADDR'] = $_SERVER['HTTP_X_REAL_IP'];
 	}
 } elseif ( isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) ) {
@@ -94,7 +109,7 @@ if ( $zt_behind_proxy ) {
 	}
 	unset( $zt_scheme, $zt_port );
 }
-unset( $zt_peer, $zt_behind_proxy );
+unset( $zt_proxy_token, $zt_sent_token, $zt_behind_proxy );
 
 /*
  * Правка файлов через админку запрещена всем, включая администратора.
