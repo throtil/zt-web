@@ -1,0 +1,33 @@
+<!-- wp:template-part {"slug":"header","tagName":"header"} /-->
+
+<!-- wp:group {"tagName":"main","style":{"spacing":{"margin":{"top":"var:preset|spacing|50"}}},"layout":{"type":"constrained"}} -->
+<main class="wp-block-group" style="margin-top:var(--wp--preset--spacing--50)">
+
+	<!-- wp:post-terms {"term":"category","className":"zt-feed-terms","fontSize":"small"} /-->
+	<!-- wp:post-title {"level":1} /-->
+	<!-- wp:post-date {"fontSize":"small","className":"zt-feed-terms"} /-->
+
+	<!--
+		Ширина содержимого — «constrained»: сетка фотографий занимает всю
+		ширину колонки текста, а вставленная с выравниванием «на всю ширину»
+		выходит за неё. Так тройка снимков не оказывается уже абзаца.
+	-->
+	<!-- wp:post-content {"layout":{"type":"constrained"}} /-->
+
+	<!-- wp:group {"style":{"spacing":{"margin":{"top":"var:preset|spacing|50"}}},"layout":{"type":"constrained"}} -->
+	<div class="wp-block-group" style="margin-top:var(--wp--preset--spacing--50)">
+		<!-- wp:post-terms {"term":"post_tag","prefix":"Метки: ","fontSize":"small"} /-->
+	</div>
+	<!-- /wp:group -->
+
+	<!-- wp:group {"style":{"spacing":{"margin":{"top":"var:preset|spacing|50"}}},"layout":{"type":"flex","justifyContent":"space-between"}} -->
+	<div class="wp-block-group" style="margin-top:var(--wp--preset--spacing--50)">
+		<!-- wp:post-navigation-link {"type":"previous","label":"Предыдущая статья","showTitle":true} /-->
+		<!-- wp:post-navigation-link {"label":"Следующая статья","showTitle":true} /-->
+	</div>
+	<!-- /wp:group -->
+
+</main>
+<!-- /wp:group -->
+
+<!-- wp:template-part {"slug":"footer","tagName":"footer"} /-->
